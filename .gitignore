@@ -1,0 +1,11 @@
+
+# Elastic Beanstalk Files
+.elasticbeanstalk/*
+!.elasticbeanstalk/*.cfg.yml
+!.elasticbeanstalk/*.global.yml
+.env
+commands.txt
+deployment.zip
+Dockerrun.aws.json
+AWSCLIV2.pkg
+email_template/send_email.py

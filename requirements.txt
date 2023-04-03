@@ -1,0 +1,8 @@
+Flask
+requests==2.26.0
+openai
+mailchimp3
+python-dotenv
+pytz
+python-dateutil
+apscheduler
