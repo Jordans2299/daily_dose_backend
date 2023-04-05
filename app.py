@@ -7,7 +7,10 @@ from dotenv import load_dotenv
 import re
 from datetime import datetime, timedelta
 import pytz
+from pytz import timezone
 from dateutil.parser import parse
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.date import DateTrigger
 
 
 load_dotenv()
@@ -15,6 +18,25 @@ news_api_key = os.getenv("NEWS_API_KEY")
 openai_api_key = os.getenv("OPENAI_API_KEY")
 mailchimp_api_key = os.getenv("MAILCHIMP_API_KEY")
 mailchimp_list_id = os.getenv("MAILCHIMP_LIST_ID")
+
+
+def send_email_daily():
+    response = fetch_news(news_api_key)
+    news = response.get("results", [])
+
+    summarized_news = []
+    for article in news:
+        text = f"{article['title']}\n{article['content']}"
+        # Extract the first 3 and last 3 sentences
+        sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', text)
+        if len(sentences) > 6:
+            text = " ".join(sentences[:3] + sentences[-3:])
+        summary = generate_summary(openai_api_key, text)
+        if is_incomplete_sentence(summary):
+            summary = revise_summary(openai_api_key, summary)
+        summarized_news.append(summary)
+
+    send_daily_dose_email(summarized_news)
 
 
 def send_daily_dose_email(summarized_news):
@@ -32,7 +54,7 @@ def send_daily_dose_email(summarized_news):
         },
         'settings': {
             'subject_line': 'Your Daily Dose',
-            'title': 'Daily Dose Campaign-3',
+            'title': 'Daily Dose Campaign-7',
             'from_name': 'The Daily Dose',
             'reply_to': 'jordan@getthedailydose.com'
         }
@@ -45,11 +67,13 @@ def send_daily_dose_email(summarized_news):
         'html': final_html
     })
 
+    client.campaigns.actions.send(campaign['id'])
+
     # Schedule the campaign to be sent
-    next_7am_cst = get_next_7am_cst().astimezone(pytz.timezone('UTC'))
-    client.campaigns.actions.schedule(campaign['id'], {
-        'schedule_time': next_7am_cst
-    })
+    # next_7am_cst = get_next_7am_cst().astimezone(pytz.timezone('UTC'))
+    # client.campaigns.actions.schedule(campaign['id'], {
+    #     'schedule_time': next_7am_cst
+    # })
 
 def get_next_7am_cst():
     now = datetime.now(pytz.timezone('US/Central'))
@@ -124,6 +148,8 @@ def fetch_news(api_key, language="en", query="top"):
 
 summarized_news = []
 
+# summarized_news = ["Imran Khan, the chairman of the Pakistan Tehreek-e-Insaf (PTI) party, has stated that his team may participate in talks focused on holding elections, but he himself will not negotiate with what he considers to be corrupt officials. Instead, he has instructed his party leaders to reach out to other political parties and civil society groups to gain support for the Supreme Court. The PTI's Vice-Chair will likely be involved in any negotiations that take place."]
+
 @app.route('/fetch_summarized_news')
 def get_summarized_news():
     response = fetch_news(news_api_key)
@@ -139,15 +165,27 @@ def get_summarized_news():
                 text = " ".join(sentences[:3] + sentences[-3:])
             summary = generate_summary(openai_api_key, text)
             if is_incomplete_sentence(summary):
-                print(summary)
+                # print(summary)
                 summary = revise_summary(openai_api_key, summary)
             summarized_news.append(summary)
 
-    send_daily_dose_email(summarized_news)
+    # send_daily_dose_email(summarized_news)
     # Create an HTML list for better readability in the browser
     html_list = "<ul>" + "".join(f"<li>{summary}</li>" for summary in summarized_news) + "</ul>"
     return render_template_string(html_list)
 
 
+scheduler = BackgroundScheduler(timezone=timezone('US/Central'))
+
+# scheduler.add_job(send_email_daily, 'cron', hour=7)
+# scheduler.start()
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', debug=True, port=3000)
+    print("Scheduling email sending job")
+    scheduler.add_job(send_email_daily, 'cron', hour=7)
+    scheduler.start()
+    test_time = datetime.now() + timedelta(minutes=2)  # Schedule the job to run 2 minutes from now
+    # scheduler.add_job(send_email_daily, DateTrigger(test_time))
+    # scheduler.start()
+
+    app.run(host='0.0.0.0', debug=False, port=3000)
