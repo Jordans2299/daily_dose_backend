@@ -6,3 +6,4 @@ python-dotenv
 pytz
 python-dateutil
 apscheduler
+flask_cors

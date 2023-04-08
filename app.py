@@ -11,6 +11,8 @@ from pytz import timezone
 from dateutil.parser import parse
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
+from flask_cors import CORS
+from datetime import date
 
 
 load_dotenv()
@@ -18,7 +20,6 @@ news_api_key = os.getenv("NEWS_API_KEY")
 openai_api_key = os.getenv("OPENAI_API_KEY")
 mailchimp_api_key = os.getenv("MAILCHIMP_API_KEY")
 mailchimp_list_id = os.getenv("MAILCHIMP_LIST_ID")
-
 
 def send_email_daily():
     response = fetch_news(news_api_key)
@@ -32,8 +33,8 @@ def send_email_daily():
         if len(sentences) > 6:
             text = " ".join(sentences[:3] + sentences[-3:])
         summary = generate_summary(openai_api_key, text)
-        if is_incomplete_sentence(summary):
-            summary = revise_summary(openai_api_key, summary)
+        # if is_incomplete_sentence(summary):
+        #     summary = revise_summary(openai_api_key, summary)
         summarized_news.append(summary)
 
     send_daily_dose_email(summarized_news)
@@ -54,11 +55,18 @@ def send_daily_dose_email(summarized_news):
         },
         'settings': {
             'subject_line': 'Your Daily Dose',
-            'title': 'Daily Dose Campaign-7',
+            'title': 'Daily Dose Campaign-8',
             'from_name': 'The Daily Dose',
             'reply_to': 'jordan@getthedailydose.com'
         }
     })
+
+    current_date = date.today()
+    current_date = current_date.strftime('%B %d, %Y')
+    html_template = html_template.replace("{date}",current_date)
+
+    intro_paragraph = generate_intro_paragraph(openai_api_key,summarized_news)
+    html_template = html_template.replace("{intro_paragraph}",intro_paragraph)
 
     # Set the campaign's content with the AI-generated summaries
     html_content = "<ul>" + "".join(f"<li>{summary}</li>" for summary in summarized_news) + "</ul>"
@@ -69,11 +77,23 @@ def send_daily_dose_email(summarized_news):
 
     client.campaigns.actions.send(campaign['id'])
 
-    # Schedule the campaign to be sent
-    # next_7am_cst = get_next_7am_cst().astimezone(pytz.timezone('UTC'))
-    # client.campaigns.actions.schedule(campaign['id'], {
-    #     'schedule_time': next_7am_cst
-    # })
+def generate_intro_paragraph(api_key, summarized_news, model="gpt-3.5-turbo"):
+    openai.api_key = api_key
+    # Extract the main points from the summaries
+    main_points = "\n".join([f"- {summary}" for summary in summarized_news])
+    # Construct the prompt
+    prompt = f"Please create an intro paragraph in 6 sentences or less in the writing style of Matt Levine from Bloomberg for a newsletter based on the following main points:\n{main_points}\n\nIntro paragraph:"
+    response = openai.ChatCompletion.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt}
+        ],
+        # max_tokens=max_length,
+        temperature=0.7,
+    )
+    # Extract the intro paragraph from the response
+    return response['choices'][0]['message']['content'].strip()
 
 def get_next_7am_cst():
     now = datetime.now(pytz.timezone('US/Central'))
@@ -86,41 +106,29 @@ def is_incomplete_sentence(summary):
     last_char = summary[-1]
     return last_char not in {".", "!", "?"}
 
+
 def generate_summary(api_key, text, model="gpt-3.5-turbo", max_length=100):
     openai.api_key = api_key
 
-    prompt = f"Please provide a concise summary (in about {max_length} words) of the following news article that includes all important information and does not cut off:\n\n{text}\n\nSummary:"
+    # prompt = f"Please provide a concise summary (in about {max_length} words) of the following news article that includes all important information and does not cut off:\n\n{text}\n\nSummary:"
 
+    prompt = f"Please provide a concise summary (in 3 sentences or less) of the following news article that includes all important information and does not cut off:\n\n{text}\n\nSummary:"
     response = openai.ChatCompletion.create(
         model=model,
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": prompt}
         ],
-        max_tokens=max_length,
+        # max_tokens=max_length,
         temperature=0.5,
     )
 
     return response['choices'][0]['message']['content'].strip()
 
-def revise_summary(api_key, initial_summary, model="gpt-3.5-turbo", max_length=100):
-    openai.api_key = api_key
-
-    prompt = f"The following summary has some incomplete sentences. Please rephrase and complete the sentences to provide a coherent and concise summary:\n\n{initial_summary}\n\nRevised summary:"
-
-    response = openai.ChatCompletion.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=max_length,
-        temperature=0.5,
-    )
-
-    return response['choices'][0]['message']['content'].strip()
 
 app = Flask(__name__)
+CORS(app)
+
 
 @app.route('/')
 def hello():
@@ -164,14 +172,17 @@ def get_summarized_news():
             if len(sentences)>6:
                 text = " ".join(sentences[:3] + sentences[-3:])
             summary = generate_summary(openai_api_key, text)
-            if is_incomplete_sentence(summary):
-                # print(summary)
-                summary = revise_summary(openai_api_key, summary)
             summarized_news.append(summary)
+    
+    current_date = date.today()
+    current_date = current_date.strftime('%B %d, %Y')
+    current_date = "<h6>"+current_date+"</h6>"
 
+    intro_paragraph = generate_intro_paragraph(openai_api_key,summarized_news)
+    intro_paragraph =  "<p>"+intro_paragraph+"</p>"
     # send_daily_dose_email(summarized_news)
     # Create an HTML list for better readability in the browser
-    html_list = "<ul>" + "".join(f"<li>{summary}</li>" for summary in summarized_news) + "</ul>"
+    html_list =current_date + intro_paragraph + "<ul>" + "".join(f"<li>{summary}</li>" for summary in summarized_news) + "</ul>"
     return render_template_string(html_list)
 
 
@@ -184,7 +195,8 @@ if __name__ == '__main__':
     print("Scheduling email sending job")
     scheduler.add_job(send_email_daily, 'cron', hour=7)
     scheduler.start()
-    test_time = datetime.now() + timedelta(minutes=2)  # Schedule the job to run 2 minutes from now
+    # Schedule the job to run 2 minutes from now
+    # test_time = datetime.now() + timedelta(minutes=2)  
     # scheduler.add_job(send_email_daily, DateTrigger(test_time))
     # scheduler.start()
 
