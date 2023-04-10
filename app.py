@@ -13,6 +13,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
 from flask_cors import CORS
 from datetime import date
+import random
 
 
 load_dotenv()
@@ -20,10 +21,18 @@ news_api_key = os.getenv("NEWS_API_KEY")
 openai_api_key = os.getenv("OPENAI_API_KEY")
 mailchimp_api_key = os.getenv("MAILCHIMP_API_KEY")
 mailchimp_list_id = os.getenv("MAILCHIMP_LIST_ID")
+rapid_api_key = os.getenv("RAPID_API_KEY")
+
+image_urls = []
 
 def send_email_daily():
     response = fetch_news(news_api_key)
     news = response.get("results", [])
+
+    for n in news:
+        if n["image_url"]!=None:
+            image_urls.append(n["image_url"])
+    print(image_urls)
 
     summarized_news = []
     for article in news:
@@ -68,6 +77,13 @@ def send_daily_dose_email(summarized_news):
     intro_paragraph = generate_intro_paragraph(openai_api_key,summarized_news)
     html_template = html_template.replace("{intro_paragraph}",intro_paragraph)
 
+    # Choose a random index
+    random_index = random.randint(0, len(image_urls) - 1)
+
+    # Get the random image URL
+    random_image_url = image_urls[random_index]
+    html_template = html_template.replace("{image_url}",random_image_url)
+
     # Set the campaign's content with the AI-generated summaries
     html_content = "<ul>" + "".join(f"<li>{summary}</li>" for summary in summarized_news) + "</ul>"
     final_html = html_template.replace("{content}", html_content)
@@ -82,7 +98,7 @@ def generate_intro_paragraph(api_key, summarized_news, model="gpt-3.5-turbo"):
     # Extract the main points from the summaries
     main_points = "\n".join([f"- {summary}" for summary in summarized_news])
     # Construct the prompt
-    prompt = f"Please create an intro paragraph in 6 sentences or less in the writing style of Matt Levine from Bloomberg for a newsletter based on the following main points:\n{main_points}\n\nIntro paragraph:"
+    prompt = f"Please create an intro paragraph in 6 sentences or less with deadpan humor in the writing style of Matt Levine from Bloomberg for a newsletter based on the following main points:\n{main_points}\n\nIntro paragraph:"
     response = openai.ChatCompletion.create(
         model=model,
         messages=[
@@ -138,6 +154,31 @@ def hello():
 def get_news():
     news = fetch_news(news_api_key)
     return jsonify(news)
+    # top_stories = fetch_rapid_news(rapid_api_key)
+    # if top_stories:
+    #     return jsonify(top_stories)
+    # else:
+    #     return jsonify({"error": "Error fetching top stories"})
+
+# def fetch_rapid_news(api_key, language="en", limit=10):
+#     url = "https://newsapi.org/v2/top-headlines"
+    
+#     params = {
+#         "apiKey": api_key,
+#         "language": language,
+#         "pageSize": limit
+#     }
+    
+#     response = requests.get(url, params=params)
+    
+#     if response.status_code == 200:
+#         return response.json()
+#     else:
+#         print("Error fetching top stories")
+#         return None
+
+summarized_news = []
+
 
 def fetch_news(api_key, language="en", query="top"):
     url = "https://newsdata.io/api/1/news"
@@ -145,6 +186,7 @@ def fetch_news(api_key, language="en", query="top"):
         "language": language,
         "q": query,
         "apikey": api_key,
+        "country":"us"
     }
     response = requests.get(url, params=params)
 
@@ -152,9 +194,6 @@ def fetch_news(api_key, language="en", query="top"):
         return response.json()
     else:
         return None
-
-
-summarized_news = []
 
 # summarized_news = ["Imran Khan, the chairman of the Pakistan Tehreek-e-Insaf (PTI) party, has stated that his team may participate in talks focused on holding elections, but he himself will not negotiate with what he considers to be corrupt officials. Instead, he has instructed his party leaders to reach out to other political parties and civil society groups to gain support for the Supreme Court. The PTI's Vice-Chair will likely be involved in any negotiations that take place."]
 
